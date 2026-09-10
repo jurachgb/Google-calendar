@@ -1,5 +1,9 @@
 ﻿using Ical.Net;
 using Microsoft.Playwright;
+using Google.Apis.Auth.OAuth2;
+using Google.Apis.Calendar.v3;
+using Google.Apis.Calendar.v3.Data;
+using Google.Apis.Services;
 
 if (args.Length == 0)
 {
@@ -57,15 +61,66 @@ else
     conteudo = File.ReadAllText(entrada);
 }
 
-var calendario = Calendar.Load(conteudo);
-var eventos    = calendario.Events.ToList();
+// Etapa 2
+var calendario= Ical.Net.Calendar.Load(conteudo);
+var eventos=calendario.Events.ToList();
 
-Console.WriteLine($"\n{eventos.Count} evento(s) encontrado(s):\n");
+//Google
 
-foreach (var evento in eventos)
+var credencial = ServiceAccountCredential.FromServiceAccountData(File.OpenRead("credentials.json")).ToGoogleCredential().CreateScoped(CalendarService.Scope.Calendar);
+
+var googleCalendar=new CalendarService(new BaseClientService.Initializer
 {
-    Console.WriteLine($"Titul\t: {evento.Summary}");
-    Console.WriteLine($"Data\t: {evento.DtStart}");
-    Console.WriteLine($"UID\t\t: {evento.Uid}");
-    Console.WriteLine();
+    HttpClientInitializer=credencial,
+    ApplicationName="ICS sync"
+});
+
+var listaExistentes  = await googleCalendar.Events.List(Info.Dados.Id).ExecuteAsync();
+var uidsJaInseridos  = listaExistentes.Items?
+    .Where(ev => ev.ExtendedProperties?.Private__?.ContainsKey("icsUid") == true)
+    .Select(ev => ev.ExtendedProperties.Private__["icsUid"])
+    .ToHashSet() ?? [];
+
+
+
+foreach (var evento in eventos.Where(e => !uidsJaInseridos.Contains(e.Uid ?? "")))
+{
+    var novoEvento = new Event
+    {
+        Summary     = evento.Summary,
+        Description = evento.Description,
+        Location    = evento.Location,
+        ExtendedProperties = new Event.ExtendedPropertiesData
+        {
+            Private__ = new Dictionary<string, string> { { "icsUid", evento.Uid ?? "" } }
+        }
+    };
+
+    if (evento.IsAllDay)
+    {
+        var data = evento.DtStart.Value.Date;
+        novoEvento.Start = new EventDateTime { Date = data.ToString("yyyy-MM-dd") };
+        novoEvento.End   = new EventDateTime { Date = data.AddDays(1).ToString("yyyy-MM-dd") };
+    }
+    else
+    {
+        var inicio = evento.DtStart.Value;
+        var fim    = evento.DtEnd?.Value ?? inicio.AddHours(1);
+
+        novoEvento.Start = new EventDateTime
+        {
+            DateTimeDateTimeOffset = new DateTimeOffset(inicio, TimeSpan.FromHours(-3)),
+            TimeZone = "America/Sao_Paulo"
+        };
+        novoEvento.End = new EventDateTime
+        {
+            DateTimeDateTimeOffset = new DateTimeOffset(fim, TimeSpan.FromHours(-3)),
+            TimeZone = "America/Sao_Paulo"
+        };
+    }
+
+    await googleCalendar.Events.Insert(novoEvento, Info.Dados.Id).ExecuteAsync();
+    Console.WriteLine($"+ {evento.Summary}");
 }
+
+Console.WriteLine("\nPronto!");
