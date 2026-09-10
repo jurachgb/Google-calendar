@@ -13,11 +13,8 @@ if (entrada.StartsWith("http"))
 {
     System.Console.WriteLine("Abrindo navegador para baixar o arquivo...");
 
-    var playwright = await Playwright.CreateAsync();
-    var browser    = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-    {
-        Headless = false
-    });
+    var playwright= await Playwright.CreateAsync();
+    var browser= await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions{Headless = false});
 
     var contexto = await browser.NewContextAsync(new BrowserNewContextOptions
     {
@@ -25,40 +22,32 @@ if (entrada.StartsWith("http"))
     });
 
     var page = await contexto.NewPageAsync();
-
-    
     IDownload? download = null;
     page.Download += (_, d) => download = d;
 
-    
     try { await page.GotoAsync(entrada); } catch { }
 
-    
     int tentativas = 0;
     while (download == null && tentativas < 10)
     {
         await Task.Delay(1000);
         tentativas++;
     }
-
     if (download == null)
     {
         Console.WriteLine("Erro: download não iniciou.");
         return;
     }
-
-    string tempPath = Path.Combine(Path.GetTempPath(), "calendario.ics");
-    await download.SaveAsAsync(tempPath);
+    
+    await download.SaveAsAsync("calendario.ics");
     await browser.CloseAsync();
 
-    conteudo = File.ReadAllText(tempPath);
-    File.Delete(tempPath);
-
-    Console.WriteLine("Arquivo baixado com sucesso!");
+    System.Console.WriteLine("Arquivo salvo");
+    conteudo=File.ReadAllText("calendario.ics");
 }
 else
 {
-    // Se for um caminho local, lê direto
+    
     if (!File.Exists(entrada))
     {
         Console.WriteLine($"Arquivo não encontrado: {entrada}");
@@ -68,7 +57,6 @@ else
     conteudo = File.ReadAllText(entrada);
 }
 
-// ── PASSO 2: Lê os eventos do .ics ──────────────────────────────
 var calendario = Calendar.Load(conteudo);
 var eventos    = calendario.Events.ToList();
 
